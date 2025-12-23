@@ -1,0 +1,250 @@
+## Overview  
+The script builds a simple banking‑demo web app. It defines mock data, manages UI rendering, handles user registration/login with a simulated MFA step, provides an admin panel, and implements basic dashboard actions (view accounts, transfer funds, download statements, edit profile).
+
+---
+
+## 1. Mock data & initial state  
+
+```js
+const mockTx = [ … ];               // sample recent transactions
+const mockBranches = [ … ];          // sample branch locations
+let state = {                         // UI‑state object
+  loggedIn:false,
+  user:{name:'Friend',email:''},
+  accounts:[ … ]                     // two demo accounts with balances
+};
+```
+
+*`mockTx`* and *`mockBranches`* are static arrays used only for display.  
+*`state`* holds the current login flag, the logged‑in user’s info, and the list of accounts shown on the dashboard.
+
+---
+
+## 2. Users (including admin)  
+
+```js
+let users = [
+  {name:"Admin User",email:"admin@aquabank.com",password:"admin123",role:"admin"},
+  {name:"Pramod",email:"pramod@gmail.com",password:"user1",role:"user"}
+];
+```
+
+A simple in‑memory user store. New registrations push objects onto this array.
+
+---
+
+## 3. Initial page render (DOM ready)
+
+```js
+document.addEventListener('DOMContentLoaded',()=>{ … });
+```
+
+When the page finishes loading:
+
+1. **`renderRecent()`** – fills the recent‑transactions table.  
+2. **`renderBranches(mockBranches)`** – shows all branch cards.  
+3. **`renderAccountSummary()`** – puts the first account’s balance into the hero banner.  
+
+It also wires navigation links (`[data‑nav]`) to `showPage()` and the **Login** button to open the login page.
+
+---
+
+## 4. Navigation helper – `showPage(id)`
+
+```js
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
+  const el = document.getElementById(id);
+  if(el) el.classList.remove('hidden');
+
+  // highlight active nav link
+  document.querySelectorAll('nav a')
+          .forEach(a=>a.classList.toggle('active',
+                     a.getAttribute('data-nav')===id));
+
+  if(id==='dashboard') renderDashboard();
+  if(id==='admin') loadAdminUsers();
+}
+```
+
+* Hides every element with class **`.page`**.  
+* Shows the element whose **id** matches the requested page.  
+* Toggles the **active** class on navigation anchors.  
+* Triggers extra rendering for the dashboard or admin page.
+
+---
+
+## 5. Rendering helpers  
+
+### Recent transactions  
+
+```js
+function renderRecent(){
+  const tbody=document.getElementById('recentTx');
+  if(!tbody) return;
+  tbody.innerHTML='';
+  mockTx.forEach(t=>{ … });
+}
+```
+
+Creates a `<tr>` for each transaction, formats the amount (adds a leading “‑” for debits) and appends it to the table body.
+
+### Branch list  
+
+```js
+function renderBranches(list){ … }
+```
+
+Clears the container **`#branchList`**, builds a card `<div>` for each branch, and inserts it.
+
+### Branch filter  
+
+```js
+function filterBranches(){ … }
+```
+
+* Reads the search box, lower‑cases it.  
+* If empty → show all branches.  
+* Otherwise filters `mockBranches` by checking if the query appears in any concatenated field (`name+addr+phone`).  
+* Calls `renderBranches(filtered)` and shows a toast with the result count.
+
+### Application & contact forms  
+
+Both `submitApplication(e)` and `submitContact(e)` prevent the default submit, display a toast, and reset the form fields.
+
+---
+
+## 6. User / Admin system  
+
+### Register  
+
+```js
+function doRegister(e){
+  e.preventDefault();
+  const user = { … };
+  users.push(user);
+  showToast("Registration successful. Please log in.");
+  showPage("login");
+}
+```
+
+Collects form values, adds a new user object to `users`, notifies the user, and redirects to the login page.
+
+### Login  
+
+```js
+function doLogin(e){
+  e.preventDefault();
+  const email = …;
+  const password = …;
+  const user = users.find(u=>u.email===email && u.password===password);
+  …
+}
+```
+
+* Looks up a matching user.  
+* If none → toast “Invalid email or password”.  
+* If found → stores the user JSON in **`sessionStorage`**, shows a simulated MFA toast, and moves to the **MFA** page.
+
+### MFA verification  
+
+```js
+function verifyMfa(e){
+  e.preventDefault();
+  const code = …;
+  const user = JSON.parse(sessionStorage.getItem("currentUser"));
+  …
+}
+```
+
+* Accepts the hard‑coded code **`123456`** or any non‑empty string.  
+* Sets `state.loggedIn = true` and copies the user’s name/email into `state.user`.  
+* Routes admins to the **admin** page, regular users to **dashboard**, and shows a success toast.
+
+### Admin panel  
+
+* **`loadAdminUsers()`** builds a list of all users with a **Delete** button.  
+* **`addUser(e)`** validates fields, pushes a new user, refreshes the list, and resets the form.  
+* **`deleteUser(index)`** prevents removal of any admin, asks for confirmation, then splices the user out of `users` and refreshes the list.
+
+### Logout  
+
+```js
+function logout(){
+  sessionStorage.clear();
+  state.loggedIn=false;
+  state.user={name:'Friend',email:''};
+  showPage("home");
+  showToast("Signed out");
+}
+```
+
+Clears stored session data, resets the UI state, returns to the home page, and notifies the user.
+
+---
+
+## 7. Dashboard & account functions  
+
+### `renderDashboard()`
+
+1. Inserts the logged‑in user’s name into **`#userName`**.  
+2. Loops over `state.accounts`, creates a card for each with type, id, and formatted balance.  
+3. Calculates the total balance (`reduce`) and writes it to **`#totalBal`**.  
+4. Shows a placeholder message for messages.  
+5. Calls `showPanel('transfer')` to display the default transfer UI.
+
+### `showPanel(name)`
+
+Replaces the inner HTML of **`#panelArea`** with one of three panels:
+
+* **transfer** – a form that calls `doTransfer(event)`.  
+* **statements** – links that invoke `downloadStatement(period)`.  
+* **profile** – a form that calls `saveProfile(event)`.
+
+### Transfer logic – `doTransfer(e)`
+
+1. Prevent default submit.  
+2. Read **from**, **to**, and **amount** fields.  
+3. Validate amount > 0.  
+4. Find the source account in `state.accounts`; ensure sufficient balance.  
+5. Subtract the amount from the source.  
+6. Look for an internal destination account (matching id or the “type — id” string). If found, add the amount; otherwise treat it as an external transfer.  
+7. Re‑render the dashboard to reflect new balances and toast the result.
+
+### Statement download – `downloadStatement(period)`
+
+Creates a plain‑text PDF‑like Blob, generates an object URL, programmatically clicks a hidden `<a>` element to trigger download, then revokes the URL and shows a toast.
+
+### Profile save – `saveProfile(e)`
+
+Updates `state.user` with the values from the profile form, shows a toast, and re‑renders the dashboard (so the greeting updates).
+
+---
+
+## 8. Utility functions  
+
+* **`showToast(msg, timeout=3500)`** – displays a temporary message in the element `#toast`.  
+* **`resetForm()`** – resets the application form and toasts “Form reset”.  
+* **`renderAccountSummary()`** – writes the first account’s balance and type into the hero banner (used on initial page load).  
+
+---
+
+## 9. Miscellaneous helpers  
+
+* **`openBusiness()`** – toast + navigate to a “services” page.  
+* Mobile navigation toggle – toggles the display of nav links when the hamburger button (`#mobileToggle`) is clicked.  
+* Keyboard listener – adds a CSS class when the **Tab** key is pressed to enable focus styling.
+
+---
+
+### Execution flow (typical user)
+
+1. Page loads → `DOMContentLoaded` runs → recent transactions, branches, hero balance appear.  
+2. User clicks **Login** → `showPage('login')`.  
+3. Submits credentials → `doLogin` validates, stores user, moves to MFA.  
+4. Enters MFA code → `verifyMfa` sets `state.loggedIn`, routes to dashboard or admin.  
+5. Dashboard renders accounts, total balance, and the transfer panel.  
+6. User can transfer funds, view statements, edit profile, or logout.  
+7. Admin users can add/delete other users via the admin panel.
+
+All UI updates are performed by directly manipulating the DOM (no frameworks), and data persistence exists only for the session via `sessionStorage`. The code is purely demonstrative and does not interact with a real backend.
